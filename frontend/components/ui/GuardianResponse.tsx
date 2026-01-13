@@ -1,74 +1,71 @@
-import React from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+ import React from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { AnalysisResult } from '../services/guardianApi';
 
-interface GuardianResponseProps {
+  interface Props {
     loading: boolean;
-    analysis: string | null;  // ← Now accepts null!
-    error: string | null;
-}
+    result: AnalysisResult | null;
+  }
 
-// Define our "Guardian Terminal" Palette
-const COLORS = {
-  BG_DARK: '#0D0D0D',      // Deepest black background
-  BG_TERMINAL: '#1A1A1A',  // Slightly lighter for the text area
-  ACCENT_CYBER: '#00FF9D', // Neon green for highlights/loading
-  TEXT_PRIMARY: '#E0E0E0', // Off-white for readability
-  TEXT_DIM: '#6E6E6E',     // Dimmed text for placeholders
-  BORDER: '#333333',       // Subtle borders
-  ERROR_BG: '#2A0000',     // Dark red background for errors
-  ERROR_TEXT: '#FF3333',   // Bright red text for errors
-};
-
-// Platform-specific monospace font selection
-const MONO_FONT = Platform.select({
-  ios: 'Menlo', // Or 'Courier New'
-  android: 'monospace',
-  default: 'monospace',
-});
-
-export const GuardianResponse = ({ loading, analysis, error }: GuardianResponseProps) => {
+  export const GuardianResponse = ({ loading, result }: Props) => {
     if (loading) {
-        return (
-            <View style={styles.container}>
-                <ActivityIndicator size="large" color='#007AFF' />
-                <Text style={styles.statusText}>Analyzing image...</Text>
-            </View>
-        );
+      return (
+        <View style={styles.card}>
+          <ActivityIndicator size="large" color="#000" />
+          <Text style={styles.loadingText}>Scanning for manipulation...</Text>
+        </View>
+      );
     }
 
-    if (error) {
-        return (
-            <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>Error: {error}</Text>
-            </View>
-        );
-    }
+    if (!result) return null;
 
-    if (!analysis) {
-        return (
-            <View style={styles.placeholderContainer}>
-                <Text style={styles.placeholderText}>Share an image to see analysis results.</Text>
-            </View>
-        );
-    }
+    // Color Logic - Now handles UNKNOWN verdict for errors
+    const isDanger = result.verdict === 'DANGER';
+    const isCaution = result.verdict === 'CAUTION';
+    const isUnknown = result.verdict === 'UNKNOWN';
+
+    // UNKNOWN = Gray, Danger = Red, Caution = Orange, Safe = Green
+    const bg = isUnknown ? '#f5f5f5' : isDanger ? '#ffebee' : isCaution ? '#fff3e0' : '#e8f5e9';
+    const text = isUnknown ? '#757575' : isDanger ? '#c62828' : isCaution ? '#ef6c00' : '#2e7d32';
 
     return (
-        <ScrollView style={styles.resultContainer} contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.header}>Edge Guardian Analysis</Text>
-            <Text style={styles.bodyText}>{analysis}</Text>
-        </ScrollView>
-    );
-};
+      <View style={[styles.card, { backgroundColor: bg, borderColor: text }]}>
+        <View style={styles.header}>
+          <Text style={[styles.verdict, { color: text }]}>
+            {isUnknown ? '⚠️ ERROR' : result.verdict}
+          </Text>
+          <View style={[styles.badge, { backgroundColor: text }]}>
+              <Text style={styles.score}>{result.score}/100 Risk</Text>
+          </View>
+        </View>
 
-const styles = StyleSheet.create({
-    container: { padding: 20, alignItems: 'center', justifyContent: 'center', minHeight: 200 },
-    placeholderContainer: { padding: 40, alignItems: 'center', opacity: 0.5 },
-    placeholderText: { textAlign: 'center', fontSize: 16, color: '#666' },
-    statusText: { marginTop: 10, fontSize: 16, color: '#666' },
-    errorContainer: { backgroundColor: '#FFEBEE', borderRadius: 8, padding: 20 },
-    errorText: { color: '#D32F2F', fontSize: 16 },
-    resultContainer: { flex: 1, width: '100%', marginTop: 20, backgroundColor: '#F5F5F7', borderRadius: 12 },
-    scrollContent: { padding: 20 },
-    header: { fontSize: 20, fontWeight: 'bold', marginBottom: 12, color: '#1C1C1E' },
-    bodyText: { fontSize: 16, lineHeight: 24, color: '#333' },
-});
+        <Text style={styles.tactic}>{result.tactic?.toUpperCase() || 'UNKNOWN'}</Text>
+        <Text style={styles.explanation}>{result.explanation || 'Unable to analyze image. Please try again.'}</Text>
+      </View>
+    );
+  };
+
+  const styles = StyleSheet.create({
+    card: {
+      width: '100%',
+      padding: 20,
+      borderRadius: 16,
+      marginTop: 20,
+      backgroundColor: '#fff',
+      borderWidth: 1,
+      borderColor: '#ddd',
+      // Shadow
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    loadingText: { textAlign: 'center', marginTop: 10, color: '#666', fontSize: 16 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+    verdict: { fontSize: 28, fontWeight: '900', letterSpacing: 1 },
+    badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+    score: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+    tactic: { fontSize: 14, fontWeight: 'bold', color: '#333', marginBottom: 5, letterSpacing: 0.5 },        
+    explanation: { fontSize: 16, color: '#444', lineHeight: 22 },
+  });

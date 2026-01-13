@@ -1,118 +1,95 @@
-import * as FileSystem from 'expo-file-system/legacy';
+// 1. New Import Syntax (We import the Class, not the function)
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
-// Type definition for the Guardian API response
-interface GuardianApiResponse {
-  response?: string;
-  safe?: boolean;
-  confidence?: number;
-  threats?: string[];
+// --- TYPES ---
+export interface AnalysisResult {
+  id?: string;
+  verdict: 'SAFE' | 'CAUTION' | 'DANGER' | 'UNKNOWN';
+  score: number;
+  tactic: string;
+  explanation: string;
+  timestamp?: string;
 }
 
-// --- STREAMING VERSION (The "Hero" Function) ---
-export const analyzeImageStream = async (
-  imageUri: string,
-  onChunk: (text: string) => void
-): Promise<void> => {
+// --- CONFIG ---
+const API_URL = "https://edge-guardian.michaelangelo41699.workers.dev/";
+
+// --- ANALYZE FUNCTION ---
+export const analyzeImage = async (imageUri: string): Promise<AnalysisResult> => {
   try {
-    // 1. Read the image file as base64 (No conversion needed!)
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: 'base64',
+    console.log("1. Original URI:", imageUri);
+
+    // STEP 1: CREATE CONTEXT
+    // The new API uses a "Context" builder pattern
+    const context = ImageManipulator.manipulate(imageUri);
+
+    // STEP 2: ADD ACTIONS
+    // Resize to 800px width (prevents 500 Error / Token Limit)
+    context.resize({ width: 400 });
+
+    // STEP 3: RENDER & SAVE
+    // We render the changes, then save with specific options
+    const imageRef = await context.renderAsync();
+    const saveResult = await imageRef.saveAsync({
+        compress: 0.3,
+        format: SaveFormat.JPEG,
+        base64: true // <--- MAGIC: This generates the string for us!
     });
 
-    // 2. Send JSON payload (Matching your Backend)
-    const response = await fetch("https://edge-guardian.michaelangelo41699.workers.dev/", {
+    // Check if base64 was generated
+    if (!saveResult.base64) {
+        throw new Error("Failed to generate Base64 string from image");
+    }
+
+    console.log("2. Payload Size:", saveResult.base64.length); 
+
+    // STEP 4: SEND TO CLOUDFLARE
+    console.log("3. Sending request...");
+    const response = await fetch(API_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json" // <--- CHANGED from octet-stream
+      headers: { 
+        "Content-Type": "application/json",
+        "Accept": "application/json"
       },
       body: JSON.stringify({
-        image: base64,
-        prompt: "Analyze the psychological marketing tactics in this image. Be concise but deep.",
-        stream: true // Enable streaming for real-time display
+        image: saveResult.base64, // Use the directly generated string
+        stream: false 
       })
     });
 
-    if (!response.ok) throw new Error(`Server Error: ${response.status}`);
-    if (!response.body) throw new Error("No response body to stream");
-
-    // Stream reader loop for real-time word-by-word display
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let done = false;
-
-    while (!done) {
-      const { value, done: readerDone } = await reader.read();
-      done = readerDone;
-
-      if (value) {
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-            try {
-              const jsonStr = line.replace('data: ', '').trim();
-              if (jsonStr) {
-                const data = JSON.parse(jsonStr);
-                if (data.response) {
-                  onChunk(data.response);
-                }
-              }
-            } catch (e) {
-              console.log('Stream parse error (ignorable):', e);
-            }
-          }
-        }
-      }
+    console.log("4. Response Status:", response.status);
+    const text = await response.text();
+    
+    // STEP 5: PARSE JSON
+    try {
+        const data = JSON.parse(text);
+        return data;
+    } catch (e) {
+        console.error("JSON Parse Error. Server sent:", text);
+        throw new Error("Server returned invalid JSON. Check Backend logs.");
     }
 
-  } catch (error) {
-    console.error("Stream failed:", error);
-    throw error;
+  } catch (error: any) {
+    console.error("ANALYSIS FAILED:", error.message);
+    
+    return { 
+        verdict: "UNKNOWN", 
+        score: 0, 
+        tactic: "Analysis Error", 
+        explanation: `Failed to process image: ${error.message}` 
+    };
   }
 };
 
-// --- NON-STREAMING VERSION (Backup) ---
-export const analyzeImage = async (imageUri: string): Promise<string> => {
+// --- HISTORY FUNCTION ---
+export const getHistory = async (): Promise<AnalysisResult[]> => {
   try {
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: 'base64',
-    });
-
-    const response = await fetch("https://edge-guardian.michaelangelo41699.workers.dev/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        image: base64,
-        prompt: "Analyze this image.",
-        stream: false // Disable streaming
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Server Error ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    return data.response || "No analysis returned.";
-
-  } catch (error) {
-    console.error("Analysis failed:", error);
-    throw error;
-  }
-};
-
-export const getHistory = async (): Promise<any[]> => {
-  try {
-    const response = await fetch("https://edge-guardian.michaelangelo41699.workers.dev/", {
+    const response = await fetch(API_URL, {
       method: "GET",
       headers: { "Content-Type": "application/json" }
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch history: ${response.status}`);
-    }
+    if (!response.ok) throw new Error("History fetch failed");
 
     const history = await response.json();
     return Array.isArray(history) ? history : [];

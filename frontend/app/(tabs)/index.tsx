@@ -1,27 +1,31 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useShareIntent } from 'expo-share-intent';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View, FlatList, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { analyzeImageStream, getHistory } from '@/components/services/guardianApi';
+// Import the types we defined
+import { AnalysisResult, analyzeImage, getHistory } from '@/components/services/guardianApi';
+// Make sure this path matches where you put the component
 import { GuardianResponse } from '@/components/ui/GuardianResponse';
 
 export default function HomeScreen() {
-  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
-  const [imageUri, setImageUri] = React.useState<string | null>(null);
-  const [analysis, setAnalysis] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState<boolean>(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [history, setHistory] = React.useState<any[]>([]);
+  const { hasShareIntent, shareIntent } = useShareIntent();
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  
+  // CHANGED: State now holds the Object, not just a string
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<AnalysisResult[]>([]);
 
   // Load history when app starts
   useEffect(() => {
     loadHistory();
   }, []);
 
-  // Load history function
   const loadHistory = async () => {
     try {
       const data = await getHistory();
@@ -31,7 +35,7 @@ export default function HomeScreen() {
     }
   };
 
-  // Handle incoming share intents
+  // Handle Share Intent (from other apps)
   useEffect(() => {
     const handleShare = async () => {
       if (hasShareIntent && shareIntent?.type === 'media' && shareIntent.files) {
@@ -39,16 +43,14 @@ export default function HomeScreen() {
         handleAnalysis(shareFile.path);
       }
     };
-
     handleShare();
   }, [hasShareIntent, shareIntent]);
 
-  // Action to manually handle an image upload
+  // Pick Image Function
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.3,
-      allowsEditing: true,
+      quality: 0.5, // Lower quality = Faster upload
     });
 
     if (!result.canceled) {
@@ -56,19 +58,19 @@ export default function HomeScreen() {
     }
   };
 
+  // Main Analysis Logic
   const handleAnalysis = async (uri: string) => {
     setImageUri(uri);
     setLoading(true);
     setError(null);
-    setAnalysis("");
+    setAnalysis(null); // Clear previous result
 
     try {
-      await analyzeImageStream(uri, (newWord) => {
-        setLoading(false);
-        setAnalysis((prev) => (prev || "") + newWord);
-      });
+      // Expecting an Object now, not a string
+      const result = await analyzeImage(uri);
+      setAnalysis(result);
 
-      // Reload history after analysis completes
+      // Refresh history immediately
       loadHistory();
     } catch (err: any) {
       setError(err.message || "Failed to connect");
@@ -77,90 +79,101 @@ export default function HomeScreen() {
     }
   };
 
-  // Ping test to verify connection
+  // Ping Test (Updated for JSON)
   const testConnection = async () => {
+    setLoading(true);
+    setError(null);
     try {
       console.log("Pinging server...");
-      const res = await fetch("https://edge-guardian.michaelangelo41699.workers.dev/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-          prompt: "Ping test. Just say Pong.",
-          stream: false
-        })
-      });
-      const text = await res.text();
-      console.log("Server says:", text);
-      setAnalysis("Connection Success: " + text.substring(0, 200));
+      // We send a tiny 1x1 pixel image just to wake up the AI
+      const res = await analyzeImage("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+      setAnalysis(res);
     } catch (e: any) {
       console.error("Ping failed:", e);
       setError("Ping Failed: " + e.message);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
-      <ScrollView>
+      <ScrollView contentContainerStyle={{ paddingBottom: 50 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Edge Guardian v1.0</Text>
+          <Text style={styles.title}>Edge Guardian v2.0</Text>
           <Text style={styles.subtitle}>System Status: <Text style={styles.online}>ONLINE</Text></Text>
         </View>
 
-        {/* Show the image being analyzed */}
+        {/* Image Preview */}
         {imageUri && (
           <Image source={{ uri: imageUri }} style={styles.imagePreview} />
         )}
 
-        {/* Guardian Response Component */}
-        <GuardianResponse loading={loading} analysis={analysis} error={error} />
-
-        {/* Test Connection Button */}
-        <TouchableOpacity style={styles.testButton} onPress={testConnection}>
-          <Text style={styles.buttonText}>TEST CONNECTION (NO IMAGE)</Text>
-        </TouchableOpacity>
-
-        {/* Button to pick an image for analysis */}
-        <TouchableOpacity style={styles.analyzeButton} onPress={pickImage}>
-          <Text style={styles.buttonText}>SELECT IMAGE FOR ANALYSIS</Text>
-        </TouchableOpacity>
-
-        {/* Reset/Clear Button */}
-        {analysis && (
-          <TouchableOpacity style={styles.resetButton} onPress={() => {
-            setImageUri(null);
-            setAnalysis(null);
-            setError(null);
-          }}>
-            <Text style={styles.buttonText}>CLEAR</Text>
-          </TouchableOpacity>
+        {/* Error Display */}
+        {error && (
+            <View style={styles.errorBox}>
+                <Text style={styles.errorText}>ERROR: {error}</Text>
+            </View>
         )}
 
-        {/* Recent Scans History */}
+        {/* Traffic Light Result Card */}
+        {/* We pass 'result' because the component expects an object */}
+        <GuardianResponse loading={loading} result={analysis} />
+
+        {/* Action Buttons */}
+        <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.analyzeButton} onPress={pickImage}>
+            <Text style={styles.buttonText}>SCAN IMAGE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.testButton} onPress={testConnection}>
+            <Text style={styles.buttonText}>PING TEST</Text>
+            </TouchableOpacity>
+
+            {analysis && (
+            <TouchableOpacity style={styles.resetButton} onPress={() => {
+                setImageUri(null);
+                setAnalysis(null);
+                setError(null);
+            }}>
+                <Text style={styles.buttonText}>CLEAR</Text>
+            </TouchableOpacity>
+            )}
+        </View>
+
+        {/* History Section - UPDATED for New Data Structure */}
         {history.length > 0 && (
-          <>
+          <View style={styles.historySection}>
             <Text style={styles.historyTitle}>RECENT SCANS</Text>
             <FlatList
               data={history}
               scrollEnabled={false}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item, index) => index.toString()}
               renderItem={({ item }) => (
-                <View style={styles.historyItem}>
-                  <Text style={styles.historyPrompt} numberOfLines={1}>
-                    {item.prompt || "Analysis"}
-                  </Text>
-                  <Text style={styles.historyAnalysis} numberOfLines={2}>
-                    {item.analysis}
-                  </Text>
-                  <Text style={styles.historyTime}>
-                    {new Date(item.timestamp).toLocaleString()}
-                  </Text>
+                <View style={[
+                    styles.historyItem, 
+                    // Dynamic Border Color based on Verdict
+                    { borderLeftColor: item.verdict === 'DANGER' ? '#ff3333' : item.verdict === 'CAUTION' ? '#ffa500' : '#39FF14' }
+                ]}>
+                  <View style={styles.historyHeader}>
+                      <Text style={[
+                          styles.historyVerdict, 
+                          { color: item.verdict === 'DANGER' ? '#ff3333' : item.verdict === 'CAUTION' ? '#ffa500' : '#39FF14'}
+                        ]}>
+                        {item.verdict}
+                      </Text>
+                      <Text style={styles.historyTime}>
+                        {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'Just now'}
+                      </Text>
+                  </View>
+                  
+                  <Text style={styles.historyTactic}>{item.tactic}</Text>
                 </View>
               )}
             />
-          </>
+          </View>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -175,95 +188,107 @@ const styles = StyleSheet.create({
   },
   header: {
     borderBottomWidth: 1,
-    borderBottomColor: '#C0C0C0',
+    borderBottomColor: '#333',
     paddingBottom: 20,
     marginBottom: 20,
   },
   title: {
     color: '#39FF14',
     fontSize: 28,
-    fontFamily: 'Courier',
+    fontFamily: 'Courier', // Kept your Matrix font
     textShadowColor: 'rgba(57, 255, 20, 0.8)',
-    textShadowRadius: 12,
-    letterSpacing: 2,
+    textShadowRadius: 10,
+    fontWeight: 'bold',
   },
   subtitle: {
-    color: '#C0C0C0',
+    color: '#666',
     fontFamily: 'Courier',
     marginTop: 5,
-    fontSize: 14,
+    fontSize: 12,
   },
-  online: {
-    color: '#39ff14',
-  },
+  online: { color: '#39ff14' },
   imagePreview: {
     width: '100%',
     height: 250,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#C0C0C0',
+    borderColor: '#333',
     marginBottom: 20,
     resizeMode: 'contain',
     backgroundColor: '#111',
   },
+  errorBox: {
+      padding: 15,
+      backgroundColor: '#330000',
+      borderWidth: 1,
+      borderColor: 'red',
+      marginBottom: 20,
+  },
+  errorText: { color: 'red', fontFamily: 'Courier' },
+  
+  // Buttons
+  buttonContainer: { marginTop: 20 },
   testButton: {
     borderWidth: 1,
-    borderColor: '#FFA500',
+    borderColor: '#666',
     padding: 15,
-    borderRadius: 2,
+    borderRadius: 4,
     marginBottom: 10,
   },
   analyzeButton: {
-    borderWidth: 1,
-    borderColor: '#39FF14',
+    backgroundColor: '#39FF14',
     padding: 15,
-    borderRadius: 2,
+    borderRadius: 4,
     marginBottom: 10,
   },
   resetButton: {
     borderWidth: 1,
-    borderColor: '#C0C0C0',
+    borderColor: '#333',
     padding: 15,
-    borderRadius: 2,
+    borderRadius: 4,
   },
   buttonText: {
-    color: '#C0C0C0',
+    color: '#000', // Black text on green button looks cool
     textAlign: 'center',
-    letterSpacing: 3,
+    fontWeight: 'bold',
+    letterSpacing: 2,
     fontFamily: 'Courier',
   },
+
+  // History
+  historySection: { marginTop: 40 },
   historyTitle: {
-    color: '#39FF14',
-    fontSize: 18,
+    color: '#666',
+    fontSize: 16,
     fontFamily: 'Courier',
     fontWeight: 'bold',
-    marginTop: 30,
     marginBottom: 15,
     letterSpacing: 2,
   },
   historyItem: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#111',
     padding: 15,
     marginBottom: 10,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#39FF14',
+    borderRadius: 4,
+    borderLeftWidth: 4,
   },
-  historyPrompt: {
-    color: '#39FF14',
+  historyHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 5
+  },
+  historyVerdict: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      fontFamily: 'Courier',
+  },
+  historyTactic: {
+    color: '#eee',
     fontSize: 14,
     fontFamily: 'Courier',
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  historyAnalysis: {
-    color: '#C0C0C0',
-    fontSize: 12,
-    fontFamily: 'Courier',
-    marginBottom: 5,
   },
   historyTime: {
-    color: '#666',
+    color: '#444',
     fontSize: 10,
     fontFamily: 'Courier',
   },
