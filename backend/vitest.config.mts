@@ -1,3 +1,4 @@
+
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
 
 export default defineWorkersConfig({
@@ -5,6 +6,7 @@ export default defineWorkersConfig({
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: './wrangler.jsonc' },
+				isolatedStorage: false, // Disable to avoid Windows file locking issues
 			},
 		},
 	},

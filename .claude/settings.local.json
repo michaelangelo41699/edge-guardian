@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx expo prebuild:*)",
+      "Bash(npx expo run:android)"
+    ]
+  }
+}

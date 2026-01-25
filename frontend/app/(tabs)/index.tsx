@@ -9,6 +9,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnalysisResult, analyzeImage, getHistory } from '@/components/services/guardianApi';
 // Make sure this path matches where you put the component
 import { GuardianResponse } from '@/components/ui/GuardianResponse';
+// Import Guardian Native Module Service
+import { startGuardian, stopGuardian } from '@/services/GuardianService';
 
 export default function HomeScreen() {
   const { hasShareIntent, shareIntent } = useShareIntent();
@@ -143,6 +145,10 @@ export default function HomeScreen() {
             <Text style={styles.buttonText}>PING TEST</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity style={styles.autoPilotButton} onPress={startGuardian}>
+            <Text style={styles.buttonText}>START AUTO-PILOT</Text>
+            </TouchableOpacity>
+
             {analysis && (
             <TouchableOpacity style={styles.resetButton} onPress={() => {
                 setImageUri(null);
@@ -252,6 +258,12 @@ const styles = StyleSheet.create({
   testButton: {
     borderWidth: 1,
     borderColor: '#666',
+    padding: 15,
+    borderRadius: 4,
+    marginBottom: 10,
+  },
+  autoPilotButton: {
+    backgroundColor: '#FF0000',
     padding: 15,
     borderRadius: 4,
     marginBottom: 10,
